@@ -1,3 +1,3 @@
 export const jwtConstants = {
-  secret: 'cambia-este-secreto-en-produccion',
+  secret: process.env.JWT_SECRET ?? 'cambia-este-secreto-en-produccion',
 };

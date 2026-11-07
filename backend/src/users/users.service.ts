@@ -16,8 +16,8 @@ export class UsersService implements OnModuleInit {
       await this.repo.save(
         this.repo.create({
           name: 'Administrador',
-          email: 'admin@admin.com',
-          password: await bcrypt.hash('admin123', 10),
+          email: process.env.ADMIN_EMAIL ?? 'admin@admin.com',
+          password: await bcrypt.hash(process.env.ADMIN_PASSWORD ?? 'admin123', 10),
           role: 'admin',
         }),
       );
