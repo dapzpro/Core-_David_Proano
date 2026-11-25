@@ -68,7 +68,7 @@ export class EventsService implements OnModuleInit {
   findEventos(categoriaId?: number) {
     return this.eventos.find({
       where: categoriaId ? { categoriaId } : {},
-      relations: { categoria: true },
+      relations: { categoria: true, artistas: true },
       order: { fechaInicio: 'ASC' },
     });
   }

@@ -1,4 +1,5 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, JoinColumn, JoinTable, ManyToMany, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
+import { Artista } from '../../core/entities/artista.entity';
 import { CategoriaEvento } from './categoria-evento.entity';
 import { ZonaEntrada } from './zona-entrada.entity';
 
@@ -37,4 +38,16 @@ export class Evento {
 
   @OneToMany(() => ZonaEntrada, (zona) => zona.evento)
   zonas: ZonaEntrada[];
+
+  // Tabla intermedia eventos_artistas (N:M)
+  @ManyToMany(() => Artista)
+  @JoinTable({ name: 'eventos_artistas' })
+  artistas: Artista[];
+
+  // Inicio de la venta de entradas: sirve para medir la rapidez de agotamiento
+  @CreateDateColumn({ type: 'timestamptz' })
+  createdAt: Date;
+
+  @Column({ default: false })
+  demo: boolean;
 }

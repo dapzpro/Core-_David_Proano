@@ -14,6 +14,10 @@ export class User {
   @Column()
   password: string;
 
+  // admin | user (asistente) | door (personal de puerta) | stakeholder
   @Column({ default: 'user' })
   role: string;
+
+  @Column({ default: false })
+  demo: boolean;
 }

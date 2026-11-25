@@ -37,6 +37,27 @@ export class UsersService implements OnModuleInit {
     return result;
   }
 
+  async createWithRole(dto: CreateUserDto, role: string) {
+    const exists = await this.repo.findOne({ where: { email: dto.email } });
+    if (exists) throw new ConflictException('El email ya está registrado');
+    const user = this.repo.create({
+      name: dto.name,
+      email: dto.email,
+      password: await bcrypt.hash(dto.password, 10),
+      role,
+    });
+    const { password, ...result } = await this.repo.save(user);
+    return result;
+  }
+
+  findStaff() {
+    return this.repo.find({
+      where: { demo: false },
+      select: { id: true, name: true, email: true, role: true },
+      order: { id: 'ASC' },
+    });
+  }
+
   findByEmail(email: string) {
     return this.repo.findOne({ where: { email } });
   }

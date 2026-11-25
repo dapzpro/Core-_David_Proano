@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
-import { ProductsModule } from './products/products.module';
+import { CoreModule } from './core/core.module';
 import { EventsModule } from './events/events.module';
 
 // En producción (Render, etc.) la conexión viene en DATABASE_URL.
@@ -30,7 +30,7 @@ const databaseUrl = process.env.DATABASE_URL;
     }),
     UsersModule,
     AuthModule,
-    ProductsModule,
+    CoreModule,
     EventsModule,
   ],
 })
