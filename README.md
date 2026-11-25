@@ -14,7 +14,7 @@ Aplicación web full stack para gestionar eventos (conciertos, teatro, deportes,
 | Servicio | URL |
 |---|---|
 | Frontend (Vercel) | _pega aquí la URL de Vercel_ |
-| Backend / API (Render) | _pega aquí la URL de Render_ |
+| Backend / API (Render) | https://core-david-proano.onrender.com |
 | Base de datos | PostgreSQL en Neon |
 
 > El backend usa el plan gratuito de Render, que se duerme tras un rato sin uso: la **primera petición puede tardar 1 a 3 minutos** en responder.
@@ -40,49 +40,55 @@ La plataforma conecta cuatro tipos de usuarios:
 
 Los datos son confiables porque la asistencia se mide con el check-in por QR y solo reseñan quienes realmente ingresaron (una reseña por inscripción). **Por eso el aforo es un dato sensible**: toda la ocupación se calcula a partir de él.
 
-## 2. Estado actual del proyecto
+## 2. Estado del proyecto
+
+Todo el alcance del core está implementado y probado (88 pruebas automatizadas de backend de punta a punta, más una prueba de interfaz en navegador real).
 
 | Módulo | Estado |
 |---|---|
-| Registro, login con JWT y roles (admin / usuario) | Implementado |
-| Categorías de evento (se cargan al primer arranque) | Implementado |
-| Eventos y zonas de entrada (CRUD solo admin) | Implementado |
-| Validaciones de negocio en el backend | Implementado |
-| Dropdowns en cascada categoría → evento → zona | Implementado |
+| Registro, login con JWT y 4 roles (admin, asistente, personal de puerta, stakeholder) | Implementado |
+| Categorías, eventos y zonas de entrada (aforo y precio) | Implementado |
+| Inscripción con **bloqueo de fila** (nunca se supera el aforo), **lista de espera** y promoción automática al cancelar | Implementado |
+| Entrada con **código QR** de un solo uso y **check-in** desde el navegador del celular (cámara o código manual) | Implementado |
+| Reseñas (una por inscripción, solo quien ingresó) y moderación del admin (aprobar, rechazar, responder) | Implementado |
+| Artistas, asignación a eventos y comparación con tendencia (en alza / en baja) | Implementado |
+| **Motor de valoración**: índice de valor, categorías de aforo configurables, precio del paquete | Implementado |
+| Stakeholders y ofertas de patrocinio (publicar, aceptar, rechazar) | Implementado |
+| Datos de demostración (carga y borrado desde Ajustes) | Implementado |
 | Despliegue (Neon + Render + Vercel) | Configurado, ver sección 9 |
-| Inscripciones con QR, lista de espera y check-in | Pendiente |
-| Reseñas y moderación | Pendiente |
-| Artistas, stakeholders y ofertas de patrocinio | Pendiente |
-| Motor de valoración (cálculo del índice de valor) | Pendiente |
-
-Además, el repositorio conserva un módulo `products` (CRUD de demostración usado para aprender el login y los roles); queda disponible en la ruta `/productos` del frontend y no forma parte del core.
 
 ## 3. Cumplimiento de los requisitos del curso
 
 ### Requisito 1: validación en el back-end de un dato sensible, antes de grabar en la BD
 
-Las reglas viven en [`backend/src/events/events.service.ts`](backend/src/events/events.service.ts) y se ejecutan siempre en el servidor, aunque alguien llame a la API directamente sin pasar por React:
+Las reglas se ejecutan siempre en el servidor, aunque alguien llame a la API directamente sin pasar por React.
+
+**a) Aforo y precio de zonas** ([`events.service.ts`](backend/src/events/events.service.ts)): el aforo alimenta toda la ocupación del core, por eso es el dato sensible principal.
 
 | Regla | Respuesta si se incumple |
 |---|---|
-| **Aforo y precio de zonas (dato sensible del core):** no se pueden crear, editar ni eliminar zonas ni modificar el evento si este ya inició, porque las métricas de ocupación dependen del aforo | 400 |
-| El aforo de una zona es un entero entre 1 y 100 000; el precio no puede ser negativo | 400 |
+| No se pueden crear, editar ni eliminar zonas ni modificar el evento si este ya inició (las métricas de ocupación dependen del aforo) | 400 |
+| El aforo es un entero entre 1 y 100 000; el precio no puede ser negativo | 400 |
 | El nombre de la zona es único dentro del evento | 409 |
 | La fecha de fin es posterior a la de inicio, y un evento nuevo debe comenzar en el futuro | 400 |
 | La categoría y el evento referenciados deben existir | 400 / 404 |
 | Solo el administrador crea, edita o elimina (guard de roles) | 403 |
 
-Ejemplo de prueba (Postman) con un evento que ya inició: `PATCH /zones/1` con `{"aforo": 9999}` responde **400** con el mensaje *"El evento ya inició: no se pueden modificar sus datos ni sus zonas…"*.
+**b) Rangos de aforo y tarifas base** ([`valuation.service.ts`](backend/src/core/valuation.service.ts), `PUT /valuation/ranges`): definen el precio de los paquetes de patrocinio. El servidor rechaza con 400 si el primer rango no empieza en 0, si hay huecos o traslapes, si el último rango tiene límite superior, si hay nombres repetidos o si una tarifa es negativa.
+
+**c) Precio de las ofertas**: el administrador solo elige evento y patrocinador; el **precio y el índice los calcula el servidor**, nunca se aceptan desde el navegador.
+
+Ejemplo (Postman) con un evento que ya inició: `PATCH /zones/1` con `{"aforo": 9999}` responde **400** con *"El evento ya inició: no se pueden modificar sus datos ni sus zonas…"*.
 
 ### Requisito 2: referencias a otras tablas con dropdowns en cascada
 
-En la pantalla principal ([`frontend/src/Eventos.jsx`](frontend/src/Eventos.jsx)):
+En la pantalla principal ([`frontend/src/pages/Eventos.jsx`](frontend/src/pages/Eventos.jsx)):
 
 1. **Categoría:** se carga al abrir la página (`GET /categories`).
 2. **Evento:** el select está deshabilitado hasta elegir categoría y, al elegirla, se carga con **solo los eventos de esa categoría** (`GET /events?categoryId=`).
-3. **Zona:** al elegir el evento se cargan **sus zonas** (`GET /zones?eventId=`).
+3. **Zona:** al elegir el evento se cargan **sus zonas** con cupos disponibles (`GET /registrations/availability?eventId=`); la zona elegida determina el precio y el botón de inscripción.
 
-Al cambiar de categoría se reinician el evento y las zonas. Al crear un evento, la categoría se elige por dropdown (nunca se escribe el id), y el backend verifica que exista.
+Al cambiar de categoría se reinician el evento y las zonas. Al crear un evento, la categoría se elige por dropdown (nunca se escribe el id), y el backend verifica que exista. Lo mismo ocurre al asignar artistas a un evento (lista de selección) y al ofrecer un paquete (dropdown de patrocinadores).
 
 ### Requisito 3: Git, README y despliegue
 
@@ -94,7 +100,7 @@ Al cambiar de categoría se reinician el evento y las zonas. Al crear un evento,
 
 | Capa | Tecnología |
 |---|---|
-| Frontend | React 19, Vite, Tailwind CSS, React Router, Axios |
+| Frontend | React 19, Vite, Tailwind CSS v4, React Router, Axios, `qrcode` (generar QR) y `jsqr` (leer QR con la cámara) |
 | Backend | NestJS 11 (TypeScript), TypeORM, Passport + JWT, bcrypt, class-validator |
 | Base de datos | PostgreSQL |
 | Despliegue | Neon (BD), Render (API), Vercel (frontend) |
@@ -108,21 +114,45 @@ Al cambiar de categoría se reinician el evento y las zonas. Al crear un evento,
 └──────────────────┘                    └──────────────────┘             └──────────────┘
 ```
 
-**Tablas implementadas**
+**Modelo de datos**
 
 ```
-categorias_evento 1──N eventos 1──N zonas_entrada
-usuarios (rol: admin / user)
+categorias_evento 1──N eventos 1──N zonas_entrada 1──N inscripciones N──1 usuarios
+                          N──M artistas (eventos_artistas)         1──1 resenas
+usuarios 1──1 stakeholders 1──N ofertas_patrocinio N──1 eventos
+rangos_aforo (configurable por el admin)
 ```
 
 | Tabla | Campos principales |
 |---|---|
-| `usuarios` | id, name, email (único), password (hash bcrypt), role |
+| `usuarios` | id, name, email (único), password (bcrypt), role (`admin`, `user`, `door`, `stakeholder`) |
 | `categorias_evento` | id, nombre (único) |
 | `eventos` | id, nombre, descripcion, ubicacion, fechaInicio, fechaFin, estado, accesibilidad, categoriaId |
 | `zonas_entrada` | id, nombre, aforo, precio, eventoId (único por evento + nombre) |
+| `artistas` / `eventos_artistas` | nombre, descripción / relación N:M |
+| `inscripciones` | token QR único, estado (Confirmada, EnEspera, Ingresada, Cancelada), checkedInAt, usuarioId, zonaId, eventoId |
+| `resenas` | calificación 1-5, comentario, estado (Pendiente, Aprobada, Rechazada), respuestaAdmin, inscripcionId (único), moderadaPorId |
+| `stakeholders` | empresa, sector, contacto, usuarioId |
+| `ofertas_patrocinio` | indiceValor, precio, estado (Publicada, Aceptada, Rechazada), eventoId, stakeholderId |
+| `rangos_aforo` | nombre, minAforo, maxAforo (nulo = sin límite), tarifaBase |
 
-**Tablas planificadas para el core:** `artistas`, `eventos_artistas` (N:M), `inscripciones` (token QR único, estado Confirmada / EnEspera / Ingresada / Cancelada), `resenas`, `stakeholders`, `ofertas_patrocinio`.
+**Concurrencia.** La inscripción y la cancelación corren en una transacción con `pessimistic_write` sobre la fila de la zona, y el check-in bloquea la fila de la inscripción. Así, 10 inscripciones simultáneas en una zona de aforo 3 dan exactamente 3 confirmadas y 7 en lista de espera, y 3 escaneos simultáneos del mismo QR dejan 1 ingreso válido y 2 «ya usada». Índices únicos parciales impiden duplicados (un usuario, una inscripción activa por evento).
+
+### Motor de valoración (el core)
+
+| Métrica | Fórmula |
+|---|---|
+| Ocupación | asistentes con check-in ÷ aforo total × 100 |
+| Calificación | promedio de reseñas **aprobadas** ÷ 5 × 100 |
+| Popularidad de un artista | 40 % ocupación promedio + 30 % calificación promedio + 20 % rapidez de agotamiento + 10 % tendencia, usando solo sus eventos finalizados anteriores |
+| Índice de valor | 35 % ocupación + 25 % calificación + 40 % popularidad media de sus artistas |
+| Precio del paquete | tarifa base del rango de aforo × (1 + índice ÷ 100) |
+
+Interpretaciones elegidas donde el enunciado deja margen: la **rapidez** es `100 − % del tiempo de venta que tardó en llenarse` (0 si nunca se llenó); la **tendencia** es `50 + (promedio de los últimos 3 − promedio de los anteriores) ÷ 2`, acotada a 0-100 (50 = neutra); un artista sin eventos anteriores no cuenta en el promedio y figura «sin datos suficientes». Un evento sin asistentes o sin reseñas aprobadas es **«No disponible»**. Los rangos por defecto son Pequeño (0-200, $500), Mediano (201-1000, $1500) y Masivo (1001+, $4000) y el admin los edita en Ajustes.
+
+### Datos de demostración
+
+Como el motor necesita historial, **Ajustes → Datos de demostración** carga (y borra) un conjunto ficticio y determinista: 19 eventos finalizados, 7 artistas con trayectorias distintas (en alza, en baja, estable, sin datos), miles de asistentes con check-in y reseñas, y 2 eventos futuros (uno de aforo 5 para probar la lista de espera). Todo queda marcado como demo y no toca los datos reales.
 
 ## 6. Autenticación y roles
 
@@ -131,10 +161,12 @@ usuarios (rol: admin / user)
 3. React guarda el token y Axios lo envía en cada petición: `Authorization: Bearer <token>`.
 4. `JwtAuthGuard` valida el token y `RolesGuard` revisa el rol. La seguridad real está en el backend: los botones ocultos en React son solo experiencia de usuario.
 
-| Rol | Ver eventos y zonas | Crear / editar / eliminar |
-|---|:---:|:---:|
-| Usuario (se registra desde la pantalla) | Sí | No |
-| Administrador | Sí | Sí |
+| Rol | Qué puede hacer | Pantallas |
+|---|---|---|
+| **Asistente** (se registra solo) | Ver eventos, inscribirse, ver su QR, cancelar, reseñar | Eventos, Mis entradas |
+| **Personal de puerta** (lo crea el admin) | Escanear QR y ver el resultado | Control de acceso |
+| **Stakeholder** (lo crea el admin) | Ver ranking, trayectoria de artistas, aceptar o rechazar ofertas | Recomendados, Artistas, Mis ofertas |
+| **Administrador** | Todo lo de gestión: eventos, zonas, artistas, reseñas, rangos, personal, ofertas, datos demo | Eventos, Reseñas, Valoración, Ofertas, Artistas, Ajustes |
 
 El administrador se crea solo en el primer arranque del backend. En local: `admin@admin.com` / `admin123`. **En producción se define con `ADMIN_EMAIL` y `ADMIN_PASSWORD`.**
 
@@ -142,13 +174,30 @@ El administrador se crea solo en el primer arranque del backend. En local: `admi
 
 | Método | Ruta | Acceso |
 |---|---|---|
-| POST | `/auth/register` | Público |
-| POST | `/auth/login` | Público |
-| GET | `/categories` | Sesión iniciada |
-| GET | `/events?categoryId=` | Sesión iniciada |
-| POST / PATCH / DELETE | `/events`, `/events/:id` | Solo admin |
-| GET | `/zones?eventId=` | Sesión iniciada |
-| POST / PATCH / DELETE | `/zones`, `/zones/:id` | Solo admin |
+| POST | `/auth/register`, `/auth/login` | Público |
+| GET | `/categories`, `/events?categoryId=`, `/zones?eventId=` | Sesión iniciada |
+| POST / PATCH / DELETE | `/events`, `/events/:id`, `/zones`, `/zones/:id` | Admin |
+| GET | `/artists` | Sesión iniciada |
+| POST / PATCH / DELETE | `/artists`, `/artists/:id` | Admin |
+| PUT | `/events/:id/artists` | Admin |
+| GET | `/registrations/availability?eventId=` | Sesión iniciada |
+| POST | `/registrations` | Asistente |
+| GET | `/registrations/mine` | Asistente |
+| PATCH | `/registrations/:id/cancel` | Asistente |
+| POST | `/registrations/checkin` | Puerta, admin |
+| GET | `/registrations/attendance?eventId=` | Puerta, admin |
+| POST | `/reviews` | Asistente |
+| GET | `/reviews/event/:id` | Sesión iniciada (solo aprobadas) |
+| GET | `/reviews?estado=` | Admin |
+| PATCH | `/reviews/:id/moderate` | Admin |
+| GET | `/valuation/events?from=&to=` | Admin, stakeholder |
+| GET | `/valuation/artists` | Admin, stakeholder |
+| GET / PUT | `/valuation/ranges` | Admin, stakeholder (GET) / admin (PUT) |
+| POST / GET | `/offers` | Admin |
+| GET | `/offers/mine` | Stakeholder |
+| PATCH | `/offers/:id/respond` | Stakeholder |
+| GET / POST | `/staff`, `/staff/stakeholders` | Admin |
+| GET / POST / DELETE | `/demo` | Admin |
 
 Códigos usados: 200/201 correcto, 400 datos o reglas inválidas, 401 sin sesión, 403 sin permiso, 404 no encontrado, 409 conflicto (correo o zona repetidos).
 
@@ -167,6 +216,23 @@ cd frontend
 npm install
 npm run dev
 ```
+
+### Cómo probar el flujo completo (3 minutos)
+
+1. Entra como administrador (`admin@admin.com` / `admin123`) → **Ajustes → Datos de demostración → Cargar**.
+2. **Valoración** muestra los eventos finalizados agrupados por rango de aforo, con índice, precio y el detalle de la fórmula. **Artistas** muestra quiénes están en alza o en baja.
+3. En **Ajustes → Personal** crea un usuario de puerta y un patrocinador. En **Valoración** pulsa «Ofrecer a un patrocinador».
+4. Regístrate como asistente (pantalla de login) → inscríbete en «Taller Cerrado de Actuación» (aforo 5, queda en lista de espera) o en «Festival de Música Andina» → en **Mis entradas** aparece tu QR.
+5. Con el usuario de puerta, elige el evento y escanea el QR con la cámara (o pega el código): ingreso válido; el segundo escaneo muestra «ya usada» con la hora del primero.
+6. Inicia sesión como patrocinador y acepta o rechaza la oferta.
+
+### Pruebas
+
+El backend se probó de punta a punta con 88 comprobaciones (`node backend/test/e2e.mjs` con la API corriendo en `localhost:3000`) (roles, fórmulas del motor, validación de rangos, concurrencia de inscripciones y check-in, lista de espera, reseñas, ofertas). La interfaz se recorrió con un navegador automatizado (Chromium) por cada rol, en escritorio y móvil.
+
+## Diseño de la interfaz
+
+Diseño minimalista con un solo color de marca, tipografía serif (Fraunces) para títulos e Inter para el texto, y componentes propios en `frontend/src/components/ui.jsx`. Decisiones de UX: navegación distinta por rol, estados de carga, vacíos y error en cada pantalla, confirmación antes de acciones destructivas, mensajes del servidor traducidos a lenguaje claro, formularios con etiquetas, foco visible y navegación con teclado, modales accesibles (Esc, foco atrapado), y diseño responsive pensado para que el personal de puerta use el celular.
 
 Abre http://localhost:5173. Las tablas y las 4 categorías se crean solas al arrancar. Para probar los permisos, entra con el admin y luego con una cuenta nueva.
 
@@ -208,4 +274,6 @@ Orden recomendado: base de datos → backend → frontend → ajustar CORS.
 - Contraseñas con bcrypt; secretos y credenciales del administrador por variables de entorno en producción.
 - El token se guarda en `localStorage`; lo más seguro sería una cookie `httpOnly`.
 - `synchronize: true` es adecuado para desarrollo; en producción real se usan migraciones.
-- Pendiente: inscripciones con control de concurrencia (transacción con bloqueo de fila para no superar nunca el aforo), QR de un solo uso, reseñas y el motor de valoración.
+- Los eventos ya iniciados no admiten cambios en sus datos ni zonas (regla de negocio, para que las métricas no se alteren).
+- La lectura de QR con la cámara requiere HTTPS (Vercel lo da) o `localhost`; en otro caso se usa el ingreso manual del código.
+- Mejoras futuras: migraciones en lugar de `synchronize`, cookie `httpOnly`, paginación de listados, pruebas automatizadas dentro del repositorio.
